@@ -47,5 +47,23 @@
         "name": "Navn"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Parkly",
+        "description": "Hvor ofte Parkly skal spørres. I arbeidstiden brukes det korte intervallet, ellers det lange.",
+        "data": {
+          "fast_interval": "Intervall i arbeidstiden",
+          "slow_interval": "Intervall utenom arbeidstiden",
+          "work_start": "Arbeidstiden starter",
+          "work_end": "Arbeidstiden slutter",
+          "weekends": "Regn med lørdag og søndag"
+        }
+      }
+    },
+    "error": {
+      "work_hours": "Arbeidstiden må slutte etter at den starter"
+    }
   }
 }

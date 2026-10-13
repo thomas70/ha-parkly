@@ -8,7 +8,14 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.parkly.api import ParklyAuthError
-from custom_components.parkly.const import DOMAIN
+from custom_components.parkly.const import (
+    CONF_FAST_INTERVAL,
+    CONF_SLOW_INTERVAL,
+    CONF_WEEKENDS,
+    CONF_WORK_END,
+    CONF_WORK_START,
+    DOMAIN,
+)
 from custom_components.parkly.coordinator import poll_interval
 
 PERMITS = [
@@ -69,8 +76,34 @@ async def test_auth_failure_starts_reauth(hass):
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
 
 
-def test_poll_interval():
+def test_poll_interval_defaults():
     assert poll_interval(datetime(2026, 10, 14, 10, 0)).total_seconds() == 60  # Wednesday 10:00
     assert poll_interval(datetime(2026, 10, 14, 18, 0)).total_seconds() == 900  # evening
     assert poll_interval(datetime(2026, 10, 18, 10, 0)).total_seconds() == 900  # Sunday
     assert poll_interval(datetime(2026, 10, 14, 6, 55)).total_seconds() == 300  # wake at 07:00
+
+
+def test_poll_interval_options():
+    o = {CONF_FAST_INTERVAL: 120, CONF_SLOW_INTERVAL: 30, CONF_WORK_START: 6, CONF_WORK_END: 20, CONF_WEEKENDS: True}
+    assert poll_interval(datetime(2026, 10, 18, 10, 0), o).total_seconds() == 120  # Sunday counts
+    assert poll_interval(datetime(2026, 10, 14, 19, 0), o).total_seconds() == 120
+    assert poll_interval(datetime(2026, 10, 14, 21, 0), o).total_seconds() == 1800
+
+
+async def test_options_flow(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CREDS, unique_id="a@b.c")
+    entry.add_to_hass(hass)
+    with patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert result["type"] is FlowResultType.FORM
+        bad = {CONF_FAST_INTERVAL: 30.0, CONF_SLOW_INTERVAL: 5.0, CONF_WORK_START: 18.0, CONF_WORK_END: 8.0, CONF_WEEKENDS: False}
+        result = await hass.config_entries.options.async_configure(result["flow_id"], bad)
+        assert result["errors"] == {"base": "work_hours"}
+        good = {**bad, CONF_WORK_START: 6.0, CONF_WORK_END: 18.0}
+        result = await hass.config_entries.options.async_configure(result["flow_id"], good)
+        await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {CONF_FAST_INTERVAL: 30, CONF_SLOW_INTERVAL: 5, CONF_WORK_START: 6,
+                             CONF_WORK_END: 18, CONF_WEEKENDS: False}

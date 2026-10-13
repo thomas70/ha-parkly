@@ -47,5 +47,23 @@
         "name": "Name"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Parkly",
+        "description": "How often to ask Parkly. The short interval is used during working hours, the long one otherwise.",
+        "data": {
+          "fast_interval": "Interval during working hours",
+          "slow_interval": "Interval outside working hours",
+          "work_start": "Working hours start",
+          "work_end": "Working hours end",
+          "weekends": "Include Saturday and Sunday"
+        }
+      }
+    },
+    "error": {
+      "work_hours": "Working hours must end after they start"
+    }
   }
 }

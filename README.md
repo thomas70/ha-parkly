@@ -17,7 +17,9 @@ For each agreement zone on your Parkly account (numbered 1, 2, … in id order):
 | `sensor.parkly_sone1_displaynavn` | `7/25` |
 | `sensor.parkly_sone1_navn` | `Avtaleparkering: Sone 1 & 3` |
 
-Polling: every minute on weekdays 07:00–17:00, otherwise every 15 minutes.
+Polling: by default every minute on weekdays 07:00–17:00, otherwise every 15 minutes.
+Change it under Settings → Devices & services → Parkly → Configure (interval during and
+outside working hours, when working hours start and end, and whether weekends count).
 
 ## How it logs in
 

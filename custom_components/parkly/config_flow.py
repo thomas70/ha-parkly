@@ -6,20 +6,54 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .api import ParklyApi, ParklyAuthError, ParklyConnectionError
-from .const import DOMAIN
+from .const import (
+    CONF_FAST_INTERVAL,
+    CONF_SLOW_INTERVAL,
+    CONF_WEEKENDS,
+    CONF_WORK_END,
+    CONF_WORK_START,
+    DEFAULTS,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 USER_SCHEMA = vol.Schema({vol.Required(CONF_EMAIL): str, vol.Required(CONF_PASSWORD): str})
 
 
+def _number(low: int, high: int, unit: str) -> NumberSelector:
+    return NumberSelector(NumberSelectorConfig(min=low, max=high, step=1, mode=NumberSelectorMode.BOX,
+                                               unit_of_measurement=unit))
+
+
+OPTIONS_SCHEMA = vol.Schema({
+    vol.Required(CONF_FAST_INTERVAL): _number(30, 3600, "s"),
+    vol.Required(CONF_SLOW_INTERVAL): _number(1, 240, "min"),
+    vol.Required(CONF_WORK_START): _number(0, 23, "h"),
+    vol.Required(CONF_WORK_END): _number(1, 24, "h"),
+    vol.Required(CONF_WEEKENDS): BooleanSelector(),
+})
+
+
 class ParklyConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> ParklyOptionsFlow:
+        return ParklyOptionsFlow()
 
     async def _check(self, user_input: dict[str, Any]) -> tuple[dict[str, str], list[dict[str, Any]]]:
         """Log in and fetch permits. Returns (errors, permits)."""
@@ -64,5 +98,26 @@ class ParklyConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=self.add_suggested_values_to_schema(USER_SCHEMA, {CONF_EMAIL: entry.data.get(CONF_EMAIL)}),
+            errors=errors,
+        )
+
+
+class ParklyOptionsFlow(OptionsFlowWithReload):
+    """How often to poll, and when working hours are."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            # Number selectors return floats; store whole numbers.
+            data = {k: (int(v) if isinstance(v, float) else v) for k, v in user_input.items()}
+            if data[CONF_WORK_START] >= data[CONF_WORK_END]:
+                errors["base"] = "work_hours"
+            else:
+                return self.async_create_entry(data=data)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, {**DEFAULTS, **self.config_entry.options, **(user_input or {})}
+            ),
             errors=errors,
         )
