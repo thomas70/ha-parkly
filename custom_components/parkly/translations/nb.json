@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Parkly",
+        "description": "Logg inn med Parkly-kontoen din.",
+        "data": {
+          "email": "E-post",
+          "password": "Passord"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Parkly",
+        "description": "Innloggingen virker ikke lenger. Skriv inn passordet på nytt.",
+        "data": {
+          "email": "E-post",
+          "password": "Passord"
+        }
+      }
+    },
+    "error": {
+      "auth": "Feil e-post eller passord",
+      "cannot_connect": "Får ikke kontakt med Parkly",
+      "no_permits": "Kontoen har ingen avtaleparkering",
+      "unknown": "Ukjent feil"
+    },
+    "abort": {
+      "already_configured": "Kontoen er allerede lagt til",
+      "reauth_successful": "Innloggingen er oppdatert"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "benyttet": {
+        "name": "Benyttet"
+      },
+      "ledige": {
+        "name": "Ledige"
+      },
+      "antall": {
+        "name": "Antall"
+      },
+      "displaynavn": {
+        "name": "Belegg"
+      },
+      "navn": {
+        "name": "Navn"
+      }
+    }
+  }
+}
