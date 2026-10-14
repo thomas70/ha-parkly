@@ -8,7 +8,12 @@ Login is Parkly's Azure AD B2C policy, done with plain HTTP (no browser):
 Data:
   GET  https://api.parkly.no/api/prepaidpackage/assignments
        -> {"prepaidServicePermits": [{id, serviceName, totalServiceSpaceCount,
-           activeServiceSpaceCount, parkingLotName, areas, companyName, ...}]}
+           activeServiceSpaceCount, activeLicensePlatesForAssignment, parkingLotName,
+           areas, companyName, ...}]}
+       activeLicensePlatesForAssignment holds the account's own plates parked in that zone now.
+  GET  https://api.parkly.no/api/user/activity
+       -> [{startTime, endTime, parkingLotAreaName, serviceName, licensePlateNumber, ...}]
+          finished parking segments only (one per area visited); ~300 KB
 """
 from __future__ import annotations
 
@@ -179,3 +184,9 @@ class ParklyApi:
         data = await self._get("api/prepaidpackage/assignments")
         permits = (data or {}).get("prepaidServicePermits") or []
         return sorted(permits, key=lambda p: p.get("id", 0))
+
+    async def get_activity(self) -> list[dict[str, Any]]:
+        """Finished parking segments, newest first."""
+        data = await self._get("api/user/activity")
+        items = data if isinstance(data, list) else []
+        return sorted(items, key=lambda a: a.get("startTime") or "", reverse=True)

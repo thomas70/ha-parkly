@@ -16,22 +16,32 @@ from custom_components.parkly.const import (
     CONF_WORK_START,
     DOMAIN,
 )
-from custom_components.parkly.coordinator import poll_interval
+from custom_components.parkly.coordinator import last_parking, poll_interval
 
 PERMITS = [
     {"id": 594, "serviceName": "Avtaleparkering: Sone 1 & 3", "totalServiceSpaceCount": 25,
-     "activeServiceSpaceCount": 7, "parkingLotName": "Mustad Næringspark", "companyName": "SYKEHUSPARTNER HF",
+     "activeServiceSpaceCount": 7, "activeLicensePlatesForAssignment": ["AB12345"], "parkingLotName": "Mustad Næringspark", "companyName": "SYKEHUSPARTNER HF",
      "areas": [{"id": 150, "name": "Uteparkering - Område 1"}, {"id": 158, "name": "Uteparkering - Område 3"}]},
     {"id": 595, "serviceName": "Avtaleparkering: Sone 2", "totalServiceSpaceCount": 2,
-     "activeServiceSpaceCount": 2, "parkingLotName": "Mustad Næringspark", "companyName": "SYKEHUSPARTNER HF",
+     "activeServiceSpaceCount": 2, "activeLicensePlatesForAssignment": [], "parkingLotName": "Mustad Næringspark", "companyName": "SYKEHUSPARTNER HF",
      "areas": [{"id": 157, "name": "Uteparkering - Område 2"}]},
+]
+ACTIVITY = [  # newest first, like the real history after a morning arrival
+    {"startTime": "2026-10-14T07:53:20+02:00", "endTime": "2026-10-14T07:54:26+02:00",
+     "parkingLotAreaName": "Uteparkering - Område 2", "serviceName": "Avtaleparkering: Sone 2"},
+    {"startTime": "2026-10-14T07:52:52+02:00", "endTime": "2026-10-14T07:53:20+02:00",
+     "parkingLotAreaName": "Uteparkering - Område 1", "serviceName": "Avtaleparkering: Sone 1 & 3"},
+    {"startTime": "2026-10-13T14:11:43+02:00", "endTime": "2026-10-13T15:37:07+02:00",
+     "parkingLotAreaName": "Uteparkering - Område 2", "serviceName": "Avtaleparkering: Sone 2",
+     "parkingLotName": "Mustad Næringspark", "licensePlateNumber": "AB12345"},
 ]
 API = "custom_components.parkly.api.ParklyApi"
 CREDS = {CONF_EMAIL: "a@b.c", CONF_PASSWORD: "pw"}
 
 
 async def test_config_flow_creates_entry(hass):
-    with patch(f"{API}.login", AsyncMock()), patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)):
+    with patch(f"{API}.login", AsyncMock()), patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)), \
+         patch(f"{API}.get_activity", AsyncMock(return_value=ACTIVITY)):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
         assert result["type"] is FlowResultType.FORM
         result = await hass.config_entries.flow.async_configure(result["flow_id"], CREDS)
@@ -51,7 +61,8 @@ async def test_wrong_password(hass):
 async def test_sensors_keep_old_entity_ids(hass):
     entry = MockConfigEntry(domain=DOMAIN, data=CREDS, unique_id="a@b.c")
     entry.add_to_hass(hass)
-    with patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)):
+    with patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)), \
+         patch(f"{API}.get_activity", AsyncMock(return_value=ACTIVITY)):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     expect = {
@@ -93,7 +104,8 @@ def test_poll_interval_options():
 async def test_options_flow(hass):
     entry = MockConfigEntry(domain=DOMAIN, data=CREDS, unique_id="a@b.c")
     entry.add_to_hass(hass)
-    with patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)):
+    with patch(f"{API}.get_permits", AsyncMock(return_value=PERMITS)), \
+         patch(f"{API}.get_activity", AsyncMock(return_value=ACTIVITY)):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
         result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -107,3 +119,40 @@ async def test_options_flow(hass):
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == {CONF_FAST_INTERVAL: 30, CONF_SLOW_INTERVAL: 5, CONF_WORK_START: 6,
                              CONF_WORK_END: 18, CONF_WEEKENDS: False}
+
+
+def test_last_parking_skips_short_stops():
+    last = last_parking(ACTIVITY)
+    assert last["parkingLotAreaName"] == "Uteparkering - Område 2"
+    assert last["start"].isoformat() == "2026-10-13T14:11:43+02:00"
+    assert last_parking(ACTIVITY[:2]) is None
+
+
+async def test_my_car_and_last_parking(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CREDS, unique_id="a@b.c")
+    entry.add_to_hass(hass)
+    gone = [{**p, "activeLicensePlatesForAssignment": []} for p in PERMITS]
+    permits = AsyncMock(return_value=PERMITS)
+    activity = AsyncMock(return_value=ACTIVITY)
+    with patch(f"{API}.get_permits", permits), patch(f"{API}.get_activity", activity):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        car = hass.states.get("sensor.parkly_min_bil")
+        assert car.state == "Sone 1 & 3"
+        assert car.attributes["skilt"] == ["AB12345"]
+        last = hass.states.get("sensor.parkly_siste_parkering")
+        assert last.state == "2026-10-13T12:11:43+00:00"
+        assert last.attributes["område"] == "Uteparkering - Område 2"
+        assert last.attributes["varighet_min"] == 85
+        assert activity.await_count == 1
+
+        # Still parked: the big history is not fetched again on every poll.
+        await entry.runtime_data.async_refresh()
+        assert activity.await_count == 1
+
+        # Driving away fetches the history straight away.
+        permits.return_value = gone
+        await entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+        assert hass.states.get("sensor.parkly_min_bil").state == "Ikke parkert"
+        assert activity.await_count == 2

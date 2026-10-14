@@ -17,6 +17,18 @@ For each agreement zone on your Parkly account (numbered 1, 2, … in id order):
 | `sensor.parkly_sone1_displaynavn` | `7/25` |
 | `sensor.parkly_sone1_navn` | `Avtaleparkering: Sone 1 & 3` |
 
+And for your own car:
+
+| Sensor | Example |
+|---|---|
+| `sensor.parkly_min_bil` | `Sone 1 & 3`, or `Ikke parkert` (attributes: plates, parking lot, areas) |
+| `sensor.parkly_siste_parkering` | start of your last finished parking (attributes: area, zone, end, minutes, plate) |
+
+Parkly only says which *zone* your car is in while it is parked; the exact area shows up
+in the history after you leave. Stops shorter than 5 minutes (driving through an area)
+are not counted as a parking. The history is large, so it is fetched at start-up, right
+after you leave, and otherwise once an hour.
+
 Polling: by default every minute on weekdays 07:00–17:00, otherwise every 15 minutes.
 Change it under Settings → Devices & services → Parkly → Configure (interval during and
 outside working hours, when working hours start and end, and whether weekends count).

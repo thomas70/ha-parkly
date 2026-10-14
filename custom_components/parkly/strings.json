@@ -45,6 +45,12 @@
       },
       "navn": {
         "name": "Name"
+      },
+      "min_bil": {
+        "name": "My car"
+      },
+      "siste_parkering": {
+        "name": "Last parking"
       }
     }
   },

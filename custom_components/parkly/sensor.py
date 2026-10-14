@@ -1,11 +1,16 @@
-"""Occupancy sensors, one set per agreement zone."""
+"""Occupancy sensors per agreement zone, plus where my own car is."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -13,7 +18,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ParklyConfigEntry
 from .const import DOMAIN
-from .coordinator import ParklyCoordinator
+from .coordinator import ParklyCoordinator, parked_zone
+
+NOT_PARKED = "Ikke parkert"
 
 
 def _total(p: dict[str, Any]) -> int | None:
@@ -63,6 +70,12 @@ async def async_setup_entry(
         for zone, permit_id in enumerate(sorted(coordinator.data), start=1)
         for desc in SENSORS
     )
+    async_add_entities([MyCarSensor(coordinator), LastParkingSensor(coordinator)])
+
+
+def _short(service_name: str | None) -> str | None:
+    """'Avtaleparkering: Sone 1 & 3' -> 'Sone 1 & 3'."""
+    return service_name.split(":", 1)[-1].strip() if service_name else None
 
 
 class ParklySensor(CoordinatorEntity[ParklyCoordinator], SensorEntity):
@@ -107,4 +120,81 @@ class ParklySensor(CoordinatorEntity[ParklyCoordinator], SensorEntity):
             "parkeringsplass": p.get("parkingLotName"),
             "områder": [a.get("name") for a in p.get("areas") or []],
             "firma": p.get("companyName"),
+        }
+
+
+class ParklyAccountSensor(CoordinatorEntity[ParklyCoordinator], SensorEntity):
+    """Sensors about the account's own car (one device per Parkly account)."""
+
+    _attr_has_entity_name = True
+    key: str
+
+    def __init__(self, coordinator: ParklyCoordinator) -> None:
+        super().__init__(coordinator)
+        entry = coordinator.config_entry
+        self._attr_translation_key = self.key
+        self._attr_unique_id = f"{entry.unique_id}_{self.key}"
+        self.entity_id = f"sensor.parkly_{self.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
+            name="Parkly",
+            manufacturer="Parkly",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+
+class MyCarSensor(ParklyAccountSensor):
+    """Zone my car is parked in now, or «Ikke parkert»."""
+
+    key = "min_bil"
+
+    @property
+    def _zone(self) -> dict[str, Any] | None:
+        return parked_zone(self.coordinator.data or {})
+
+    @property
+    def icon(self) -> str:
+        return "mdi:car-brake-parking" if self._zone else "mdi:car-off"
+
+    @property
+    def native_value(self) -> str:
+        zone = self._zone
+        return (_short(zone.get("serviceName")) or "Parkert") if zone else NOT_PARKED
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        zone = self._zone
+        if not zone:
+            return {"skilt": []}
+        return {
+            "skilt": zone.get("activeLicensePlatesForAssignment"),
+            "parkeringsplass": zone.get("parkingLotName"),
+            "områder": [a.get("name") for a in zone.get("areas") or []],
+        }
+
+
+class LastParkingSensor(ParklyAccountSensor):
+    """Start of the last finished parking (shorter stops ignored)."""
+
+    key = "siste_parkering"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:history"
+
+    @property
+    def native_value(self) -> Any:
+        last = self.coordinator.last_parking
+        return last["start"] if last else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        last = self.coordinator.last_parking
+        if not last:
+            return None
+        return {
+            "område": last.get("parkingLotAreaName"),
+            "sone": _short(last.get("serviceName")),
+            "parkeringsplass": last.get("parkingLotName"),
+            "slutt": last["end"].isoformat(),
+            "varighet_min": round((last["end"] - last["start"]).total_seconds() / 60),
+            "skilt": last.get("licensePlateNumber"),
         }
